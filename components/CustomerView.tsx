@@ -1,8 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { MapPin, Search, Star, Clock, ChevronRight, ShoppingBag, ArrowLeft, CreditCard, Banknote, QrCode, Copy, Check, Info, User, Phone, Save, Bike, Package, AlertCircle, Coins, MessageSquare, Utensils, Trash2, MessageCircle } from 'lucide-react';
-import { Restaurant, PaymentMethod, UserProfile, OrderType, Order } from '../types';
+import { MapPin, Search, Star, Clock, ChevronRight, ShoppingBag, ArrowLeft, Bike, Package, MessageSquare, Utensils, Trash2, MessageCircle } from 'lucide-react';
+import { Restaurant, PaymentMethod, OrderType, Order } from '../types';
 
 const RatingSection: React.FC<{ order: Order, onRatingSubmit: (id: string, r: number, c: string) => void }> = ({ order, onRatingSubmit }) => {
   const [rating, setRating] = useState(0);
@@ -56,7 +56,7 @@ const RatingSection: React.FC<{ order: Order, onRatingSubmit: (id: string, r: nu
 
 export const CustomerView: React.FC = () => {
   const { 
-    currentView, setCurrentView, restaurants, selectedRestaurant, setSelectedRestaurant,
+    currentView, setCurrentView, restaurants, selectedRestaurantId, setSelectedRestaurantId, selectedRestaurant,
     cart, placeOrder, activeOrders, addToCart, removeFromCart, userProfile,
     submitOrderRating
   } = useAppContext();
@@ -64,10 +64,9 @@ export const CustomerView: React.FC = () => {
   const [activeDetailTab, setActiveDetailTab] = useState<'menu' | 'reviews'>('menu');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
   const [orderType, setOrderType] = useState<OrderType>('delivery');
-  const [copied, setCopied] = useState(false);
 
   const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const currentRestaurantId = cart.length > 0 ? cart[0].restaurantId : (selectedRestaurant?.id || null);
+  const currentRestaurantId = cart.length > 0 ? cart[0].restaurantId : (selectedRestaurantId || null);
   const currentRestaurant = restaurants.find(r => r.id === currentRestaurantId);
   const deliveryFeeValue = (orderType === 'delivery' && currentRestaurant) ? currentRestaurant.deliveryFee : 0;
   const cartTotal = subtotal + deliveryFeeValue;
@@ -81,15 +80,9 @@ export const CustomerView: React.FC = () => {
   }, [selectedRestaurant, activeOrders]);
 
   const handleRestaurantClick = (r: Restaurant) => {
-    setSelectedRestaurant(r);
+    setSelectedRestaurantId(r.id);
     setActiveDetailTab('menu');
     setCurrentView('restaurant_detail');
-  };
-
-  const handleCopyPix = (key: string) => {
-    navigator.clipboard.writeText(key);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const OrderViewTabs = ({ active }: { active: 'cart' | 'tracking' }) => (
@@ -117,7 +110,7 @@ export const CustomerView: React.FC = () => {
             <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Entregar em</p>
             <div className="flex items-center gap-1 text-brand-600 font-bold">
               <MapPin size={16} />
-              <span className="truncate max-w-[150px]">{userProfile.address}</span>
+              <span className="truncate max-w-[150px]">{userProfile.address || 'Cadastrar endereço'}</span>
               <ChevronRight size={16} />
             </div>
           </div>
@@ -143,10 +136,12 @@ export const CustomerView: React.FC = () => {
         </div>
 
         <div className="space-y-4 pb-20">
-          <h2 className="font-bold text-lg text-gray-800">Restaurantes</h2>
+          <h2 className="font-bold text-lg text-gray-800">Restaurantes Disponíveis</h2>
           {restaurants.length === 0 ? (
-            <div className="text-center py-10">
+            <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100">
+              <Utensils size={48} className="mx-auto text-gray-200 mb-4" />
               <p className="text-gray-400 text-sm font-medium">Nenhum restaurante cadastrado ainda.</p>
+              <p className="text-[10px] text-gray-400 mt-1 uppercase">Seja o primeiro parceiro!</p>
             </div>
           ) : restaurants.map(r => {
             const reviews = activeOrders.filter(o => o.restaurantId === r.id && o.rating !== undefined);
@@ -252,8 +247,10 @@ export const CustomerView: React.FC = () => {
           <div className="mt-8 space-y-8">
             {activeDetailTab === 'menu' ? (
               selectedRestaurant.menu.length === 0 ? (
-                <div className="text-center py-10 text-gray-400 text-sm">
-                  O cardápio ainda não está disponível.
+                <div className="text-center py-20 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-100">
+                  <Utensils size={32} className="mx-auto text-gray-300 mb-2" />
+                  <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">Cardápio Vazio</p>
+                  <p className="text-[10px] text-gray-400 mt-1">O restaurante ainda não cadastrou produtos.</p>
                 </div>
               ) : selectedRestaurant.menu.map(item => (
                 <div key={item.id} className={`flex gap-4 items-center ${item.available === false || isClosed ? 'opacity-50' : ''}`}>
@@ -298,7 +295,6 @@ export const CustomerView: React.FC = () => {
                       <MessageSquare size={20} className="text-gray-300" />
                     </div>
                     <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">Sem avaliações ainda</p>
-                    <p className="text-[10px] text-gray-400 max-w-[150px] mx-auto">Seja o primeiro a avaliar após receber seu pedido!</p>
                   </div>
                 )}
               </div>
@@ -331,7 +327,11 @@ export const CustomerView: React.FC = () => {
            
            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {cart.length === 0 ? (
-                 <div className="text-center py-20"><ShoppingBag size={64} className="mx-auto text-gray-200 mb-4"/><h2 className="text-xl font-bold">Sacola Vazia</h2></div>
+                 <div className="text-center py-20 flex flex-col items-center">
+                    <ShoppingBag size={64} className="text-gray-200 mb-4"/>
+                    <h2 className="text-xl font-bold text-gray-800">Sacola Vazia</h2>
+                    <button onClick={() => setCurrentView('home')} className="mt-4 text-brand-600 font-bold uppercase text-xs">Explorar Cardápios</button>
+                 </div>
               ) : (
                  <>
                     <div className="space-y-4">
@@ -372,7 +372,7 @@ export const CustomerView: React.FC = () => {
 
                     <button 
                        onClick={() => placeOrder(paymentMethod, orderType)}
-                       className="w-full bg-brand-600 text-white font-black py-4 rounded-2xl shadow-xl mt-4"
+                       className="w-full bg-brand-600 text-white font-black py-4 rounded-2xl shadow-xl mt-4 active:scale-95 transition"
                     >Finalizar Pedido</button>
                  </>
               )}
@@ -401,7 +401,6 @@ export const CustomerView: React.FC = () => {
                 <ShoppingBag size={48} className="text-gray-300" />
               </div>
               <h2 className="text-xl font-bold text-gray-800">Nenhum pedido ativo</h2>
-              <p className="text-sm text-gray-400 mt-2 mb-8">Seu histórico aparecerá aqui após o pedido.</p>
             </div>
           ) : (
             activeOrders.map(order => {
@@ -434,27 +433,15 @@ export const CustomerView: React.FC = () => {
                   <div className="space-y-3 mb-6 border-t border-gray-50 pt-6">
                     {order.items.map(item => (
                       <div key={item.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-gray-50 border border-gray-100 shrink-0">
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                          </div>
-                          <span className="text-sm font-bold text-gray-700"><span className="text-brand-600">{item.quantity}x</span> {item.name}</span>
-                        </div>
+                        <span className="text-sm font-bold text-gray-700"><span className="text-brand-600">{item.quantity}x</span> {item.name}</span>
                         <span className="text-sm font-black text-gray-400">R$ {(item.price * item.quantity).toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
 
-                  {order.deliveryFee > 0 && order.orderType === 'delivery' && (
-                    <div className="flex justify-between items-center py-2 border-t border-gray-50 border-dashed">
-                       <span className="text-xs text-gray-400 font-bold uppercase">Taxa de Entrega</span>
-                       <span className="text-xs font-black text-gray-600">R$ {order.deliveryFee.toFixed(2)}</span>
-                    </div>
-                  )}
-                  
                   <div className="flex justify-between items-center bg-gray-50 p-4 rounded-2xl mt-2">
                      <div className="flex flex-col">
-                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Pago</span>
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total</span>
                         <span className="font-black text-xl text-gray-900 tracking-tight">R$ {order.total.toFixed(2)}</span>
                      </div>
                      <div className="text-right">
@@ -475,5 +462,5 @@ export const CustomerView: React.FC = () => {
     );
   }
 
-  return <div className="p-8 text-center text-gray-400 py-20"><p>Carregando vista...</p><button onClick={() => setCurrentView('home')} className="mt-4 text-brand-600 font-bold">Voltar ao Início</button></div>;
+  return null;
 };
