@@ -1,9 +1,15 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// NOTA: Em um ambiente de produção real, estas chaves viriam de process.env
-// Para este exemplo, deixamos os placeholders para que você saiba onde inserir.
-const supabaseUrl = 'https://seu-projeto.supabase.co';
-const supabaseAnonKey = 'sua-chave-anon-aqui';
+/**
+ * 💡 COMO CONFIGURAR:
+ * 1. Acesse https://supabase.com/dashboard
+ * 2. Vá em Project Settings > API
+ * 3. Copie o "Project URL" e cole no lugar de 'SUA_URL_AQUI'
+ * 4. Copie a "API Key (anon/public)" e cole no lugar de 'SUA_CHAVE_ANON_AQUI'
+ */
+
+const supabaseUrl = 'SUA_URL_AQUI'; 
+const supabaseAnonKey = 'SUA_CHAVE_ANON_AQUI';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
