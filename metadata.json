@@ -1,0 +1,7 @@
+{
+  "name": "Delivery Certo",
+  "description": "Uma conexão perfeita entre clientes e restaurantes locais para pedidos exclusivos de retirada. Economize nas taxas de entrega, pule a fila.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
