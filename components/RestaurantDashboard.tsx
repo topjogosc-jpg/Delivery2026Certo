@@ -118,7 +118,8 @@ export const RestaurantDashboard: React.FC = () => {
     ? (ratedOrders.reduce((acc, o) => acc + o.rating!, 0) / ratedOrders.length).toFixed(1)
     : "0.0";
 
-  const OrderCard = ({ order, actionLabel, onAction, secondaryAction }: { order: Order, actionLabel: string, onAction: () => void, secondaryAction?: React.ReactNode }) => (
+  // Use React.FC to correctly handle generic props like 'key' when used in maps
+  const OrderCard: React.FC<{ order: Order, actionLabel: string, onAction: () => void, secondaryAction?: React.ReactNode }> = ({ order, actionLabel, onAction, secondaryAction }) => (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
        <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center">
          <div>

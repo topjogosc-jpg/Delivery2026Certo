@@ -109,11 +109,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const newRestaurant: Restaurant = {
           id: Math.random().toString(36).substring(7),
           name: profile.name,
-          description: 'Novo parceiro Delivery Certo',
-          rating: 5.0,
+          description: 'Novo parceiro',
+          rating: 0,
           image: 'https://picsum.photos/400/300?random=' + Math.floor(Math.random() * 100),
-          deliveryTime: '30-45 min',
-          distance: '0.1 km',
+          deliveryTime: '-- min',
+          distance: '', // Removida distância fictícia
           menu: [],
           email: profile.email,
           phone: profile.phone,
