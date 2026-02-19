@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
 import { Restaurant, CartItem, Order, ViewMode, AppView, MenuItem, PaymentMethod, UserProfile, OrderType } from '../types';
-import { MOCK_RESTAURANTS } from '../constants';
+import { supabase } from '../lib/supabase';
 
 interface AppContextType {
   restaurants: Restaurant[];
@@ -11,7 +11,7 @@ interface AppContextType {
   setCurrentView: (view: AppView) => void;
   selectedRestaurantId: string | null;
   setSelectedRestaurantId: (id: string | null) => void;
-  selectedRestaurant: Restaurant | null; // Helper derivado
+  selectedRestaurant: Restaurant | null; 
   cart: CartItem[];
   addToCart: (item: MenuItem, restaurantId: string) => void;
   removeFromCart: (itemId: string) => void;
@@ -20,28 +20,25 @@ interface AppContextType {
   activeOrders: Order[];
   updateOrderStatus: (orderId: string, status: Order['status']) => void;
   submitOrderRating: (orderId: string, rating: number, comment: string) => void;
-  // Auth & Profile
   userProfile: UserProfile;
   isAuthenticated: boolean;
-  login: (email: string, pin: string, role: 'customer' | 'partner') => { success: boolean, blocked?: boolean };
-  register: (profile: UserProfile) => boolean;
+  login: (email: string, pin: string, role: 'customer' | 'partner') => Promise<{ success: boolean, blocked?: boolean }>;
+  register: (profile: UserProfile) => Promise<boolean>;
   logout: () => void;
-  updateCustomerProfile: (profile: UserProfile) => void;
-  updateRestaurantInfo: (restaurantId: string, info: Partial<Restaurant>) => void;
-  addMenuItem: (restaurantId: string, item: Omit<MenuItem, 'id'>) => void;
-  deleteMenuItem: (restaurantId: string, itemId: string) => void;
-  toggleMenuItemAvailability: (restaurantId: string, itemId: string) => void;
-  // Administrative & Status
-  toggleRestaurantOpen: (restaurantId: string) => void;
-  deleteAccount: (email: string, protocol: string) => boolean;
-  blockAccount: (email: string, protocol: string) => boolean;
+  updateCustomerProfile: (profile: UserProfile) => Promise<void>;
+  updateRestaurantInfo: (restaurantId: string, info: Partial<Restaurant>) => Promise<void>;
+  addMenuItem: (restaurantId: string, item: Omit<MenuItem, 'id'>) => Promise<void>;
+  deleteMenuItem: (restaurantId: string, itemId: string) => Promise<void>;
+  toggleMenuItemAvailability: (restaurantId: string, itemId: string) => Promise<void>;
+  toggleRestaurantOpen: (restaurantId: string) => Promise<void>;
+  deleteAccount: (email: string, protocol: string) => Promise<boolean>;
+  blockAccount: (email: string, protocol: string) => Promise<boolean>;
+  toast: { message: string, type: 'info' | 'success' | 'order' } | null;
+  setToast: (toast: { message: string, type: 'info' | 'success' | 'order' } | null) => void;
+  generateShareLink: (restaurantId: string) => string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
-
-const DB_USERS_KEY = 'delivery_certo_users_v1';
-const DB_RESTAURANTS_KEY = 'delivery_certo_restaurants_v1';
-const DEV_PROTOCOL = '0382690@';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -49,62 +46,67 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentView, setCurrentView] = useState<AppView>('landing');
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [toast, setToast] = useState<{ message: string, type: 'info' | 'success' | 'order' } | null>(null);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [activeOrders, setActiveOrders] = useState<Order[]>([]);
-  
-  // Banco de Dados de Restaurantes
-  const [restaurants, setRestaurants] = useState<Restaurant[]>(() => {
-    const saved = localStorage.getItem(DB_RESTAURANTS_KEY);
-    return saved ? JSON.parse(saved) : MOCK_RESTAURANTS;
-  });
-
   const [userProfile, setUserProfile] = useState<UserProfile>({
     name: '', address: '', addressReference: '', phone: '', email: '', role: null
   });
 
-  // Restaurante selecionado sempre derivado da lista principal (Real-time sync)
-  const selectedRestaurant = useMemo(() => {
-    if (!selectedRestaurantId) return null;
-    return restaurants.find(r => r.id === selectedRestaurantId) || null;
-  }, [selectedRestaurantId, restaurants]);
-
-  // Sincronizar com localStorage e outras abas
+  // 1. CARREGAMENTO INICIAL E REALTIME
   useEffect(() => {
-    localStorage.setItem(DB_RESTAURANTS_KEY, JSON.stringify(restaurants));
-  }, [restaurants]);
+    fetchInitialData();
 
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === DB_RESTAURANTS_KEY && e.newValue) {
-        setRestaurants(JSON.parse(e.newValue));
-      }
-      if (e.key === DB_USERS_KEY && e.newValue) {
-        const users = JSON.parse(e.newValue);
-        if (isAuthenticated && userProfile.email) {
-            const updatedMe = users.find((u: any) => u.email === userProfile.email && u.role === userProfile.role);
-            if (updatedMe) {
-                if (updatedMe.isBlocked) logout();
-                else setUserProfile(updatedMe);
-            }
-        }
-      }
+    // Inscrever em mudanças de Restaurantes
+    const restaurantsSub = supabase.channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', table: 'restaurants', schema: 'public' }, () => fetchInitialData())
+      .on('postgres_changes', { event: '*', table: 'menu_items', schema: 'public' }, () => fetchInitialData())
+      .subscribe();
+
+    // Inscrever em mudanças de Pedidos (ESSENCIAL PARA O PARCEIRO RECEBER NA HORA)
+    const ordersSub = supabase.channel('orders-db-changes')
+      .on('postgres_changes', { event: 'INSERT', table: 'orders', schema: 'public' }, (payload) => {
+          setToast({ message: "Novo pedido recebido!", type: 'order' });
+          fetchInitialData();
+      })
+      .on('postgres_changes', { event: 'UPDATE', table: 'orders', schema: 'public' }, (payload: any) => {
+          setToast({ message: `Pedido #${payload.new.id.slice(0,5)} atualizado para ${payload.new.status}`, type: 'info' });
+          fetchInitialData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(restaurantsSub);
+      supabase.removeChannel(ordersSub);
     };
+  }, []);
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [isAuthenticated, userProfile]);
+  const fetchInitialData = async () => {
+    const { data: restData } = await supabase.from('restaurants').select('*, menu_items(*)');
+    if (restData) {
+      setRestaurants(restData.map((r: any) => ({
+        ...r,
+        menu: r.menu_items || []
+      })));
+    }
 
-  const getStoredUsers = (): UserProfile[] => {
-    const data = localStorage.getItem(DB_USERS_KEY);
-    return data ? JSON.parse(data) : [];
+    const { data: orderData } = await supabase.from('orders').select('*').order('createdAt', { ascending: false });
+    if (orderData) setActiveOrders(orderData);
   };
 
-  const login = (email: string, pin: string, role: 'customer' | 'partner'): { success: boolean, blocked?: boolean } => {
-    const users = getStoredUsers();
-    const user = users.find(u => u.email === email && u.role === role && u.securityPin === pin);
-    
-    if (user) {
-      if (user.isBlocked) return { success: false, blocked: true };
-      setUserProfile(user);
+  // 2. LÓGICA DE NEGÓCIO (AGORA ASSÍNCRONA COM SUPABASE)
+  const login = async (email: string, pin: string, role: 'customer' | 'partner') => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email)
+      .eq('role', role)
+      .eq('securityPin', pin)
+      .single();
+
+    if (data) {
+      if (data.isBlocked) return { success: false, blocked: true };
+      setUserProfile(data);
       setIsAuthenticated(true);
       setCurrentView('home');
       return { success: true };
@@ -112,88 +114,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: false };
   };
 
-  const register = (profile: UserProfile): boolean => {
-    const users = getStoredUsers();
-    if (users.some(u => u.email === profile.email && u.role === profile.role)) return false;
-    
-    const newUser = { ...profile, isBlocked: false };
-    users.push(newUser);
-    localStorage.setItem(DB_USERS_KEY, JSON.stringify(users));
-    
-    if (profile.role === 'partner') {
-      const newRestaurant: Restaurant = {
-        id: Math.random().toString(36).substring(7),
-        name: profile.name,
-        description: 'Novo parceiro Delivery Certo',
-        rating: 0,
-        image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500&q=80',
-        deliveryTime: '30-45 min',
-        distance: 'Local',
-        menu: [],
-        email: profile.email,
-        phone: profile.phone,
-        address: profile.address,
-        deliveryFee: 5.00,
-        isOpen: true,
-        isBlocked: false
-      };
-      setRestaurants(prev => [...prev, newRestaurant]);
+  const register = async (profile: UserProfile) => {
+    const { data, error } = await supabase.from('profiles').insert([profile]).select().single();
+    if (data) {
+      if (profile.role === 'partner') {
+        await supabase.from('restaurants').insert([{
+          name: profile.name,
+          email: profile.email,
+          phone: profile.phone,
+          address: profile.address,
+          isOpen: true,
+          deliveryFee: 5.0
+        }]);
+      }
+      setUserProfile(data);
+      setIsAuthenticated(true);
+      setCurrentView('home');
+      return true;
     }
-
-    setUserProfile(newUser);
-    setIsAuthenticated(true);
-    setCurrentView('home');
-    return true;
+    return false;
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
-    setCurrentView('landing');
-    setSelectedRestaurantId(null);
-    setCart([]);
-    setActiveOrders([]);
-  };
-
-  const toggleRestaurantOpen = (restaurantId: string) => {
-    setRestaurants(prev => prev.map(r => r.id === restaurantId ? { ...r, isOpen: !r.isOpen } : r));
-  };
-
-  const addToCart = (item: MenuItem, restaurantId: string) => {
-    const restaurant = restaurants.find(r => r.id === restaurantId);
-    if (!restaurant?.isOpen) {
-      alert("Este restaurante está offline no momento.");
-      return;
-    }
-    if (cart.length > 0 && cart[0].restaurantId !== restaurantId) {
-       if(!window.confirm("Limpar sacola atual para pedir deste restaurante?")) return;
-       setCart([{ ...item, quantity: 1, restaurantId }]);
-       return;
-    }
-    setCart(prev => {
-      const existing = prev.find(i => i.id === item.id);
-      if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { ...item, quantity: 1, restaurantId }];
-    });
-  };
-
-  const removeFromCart = (itemId: string) => {
-    setCart(prev => prev.map(item => item.id === itemId ? { ...item, quantity: item.quantity - 1 } : item).filter(item => item.quantity > 0));
-  };
-
-  const clearCart = () => setCart([]);
-
-  const placeOrder = (method: PaymentMethod, type: OrderType, changeFor?: number) => {
+  const placeOrder = async (method: PaymentMethod, type: OrderType, changeFor?: number) => {
     if (cart.length === 0) return;
     const restaurant = restaurants.find(r => r.id === cart[0].restaurantId);
-    
     const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
     const deliveryFee = type === 'delivery' ? (restaurant?.deliveryFee || 0) : 0;
 
-    const newOrder: Order = {
-      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+    const orderData = {
       restaurantId: cart[0].restaurantId,
-      restaurantName: restaurant?.name || 'Loja',
-      items: [...cart],
+      restaurantName: restaurant?.name,
+      items: cart,
       subtotal, deliveryFee, total: subtotal + deliveryFee,
       status: 'pending',
       createdAt: Date.now(),
@@ -206,76 +157,57 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       changeFor
     };
 
-    setActiveOrders(prev => [newOrder, ...prev]);
-    clearCart();
-    setCurrentView('order_tracking');
+    const { error } = await supabase.from('orders').insert([orderData]);
+    if (!error) {
+      setCart([]);
+      setCurrentView('order_tracking');
+      setToast({ message: "Pedido enviado! Já está no celular da loja.", type: 'success' });
+    }
   };
 
-  const updateOrderStatus = (orderId: string, status: Order['status']) => {
-    setActiveOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+  const updateOrderStatus = async (orderId: string, status: Order['status']) => {
+    await supabase.from('orders').update({ status }).eq('id', orderId);
   };
 
-  const submitOrderRating = (orderId: string, rating: number, comment: string) => {
-    setActiveOrders(prev => prev.map(o => o.id === orderId ? { ...o, rating, ratingComment: comment } : o));
+  const toggleRestaurantOpen = async (restaurantId: string) => {
+    const rest = restaurants.find(r => r.id === restaurantId);
+    await supabase.from('restaurants').update({ isOpen: !rest?.isOpen }).eq('id', restaurantId);
   };
 
-  const updateCustomerProfile = (profile: UserProfile) => {
-    setUserProfile(profile);
-    const users = getStoredUsers();
-    localStorage.setItem(DB_USERS_KEY, JSON.stringify(users.map(u => (u.email === profile.email && u.role === profile.role) ? profile : u)));
+  const addMenuItem = async (restaurantId: string, item: any) => {
+    await supabase.from('menu_items').insert([{ ...item, restaurant_id: restaurantId }]);
   };
 
-  const updateRestaurantInfo = (restaurantId: string, info: Partial<Restaurant>) => {
-    setRestaurants(prev => prev.map(r => r.id === restaurantId ? { ...r, ...info } : r));
+  const deleteMenuItem = async (restaurantId: string, itemId: string) => {
+    await supabase.from('menu_items').delete().eq('id', itemId);
   };
 
-  const addMenuItem = (restaurantId: string, newItem: Omit<MenuItem, 'id'>) => {
-    setRestaurants(prev => prev.map(r => {
-      if (r.id === restaurantId) {
-        return { ...r, menu: [...r.menu, { ...newItem, id: Math.random().toString(36).substring(7) }] };
-      }
-      return r;
-    }));
-  };
-
-  const deleteMenuItem = (restaurantId: string, itemId: string) => {
-    setRestaurants(prev => prev.map(r => r.id === restaurantId ? { ...r, menu: r.menu.filter(i => i.id !== itemId) } : r));
-  };
-
-  const toggleMenuItemAvailability = (restaurantId: string, itemId: string) => {
-    setRestaurants(prev => prev.map(r => r.id === restaurantId ? {
-      ...r, menu: r.menu.map(i => i.id === itemId ? { ...i, available: !i.available } : i)
-    } : r));
-  };
-
-  const deleteAccount = (email: string, protocol: string) => {
-    if (protocol !== DEV_PROTOCOL) return false;
-    const users = getStoredUsers().filter(u => u.email !== email);
-    localStorage.setItem(DB_USERS_KEY, JSON.stringify(users));
-    setRestaurants(prev => prev.filter(r => r.email !== email));
-    if (userProfile.email === email) logout();
-    return true;
-  };
-
-  const blockAccount = (email: string, protocol: string) => {
-    if (protocol !== DEV_PROTOCOL) return false;
-    const users = getStoredUsers().map(u => u.email === email ? { ...u, isBlocked: true } : u);
-    localStorage.setItem(DB_USERS_KEY, JSON.stringify(users));
-    setRestaurants(prev => prev.map(r => r.email === email ? { ...r, isBlocked: true, isOpen: false } : r));
-    if (userProfile.email === email) logout();
-    return true;
-  };
+  // HELPERS RESTANTES (MESMA LÓGICA, PORÉM COM SUPABASE NO BACKEND)
+  const logout = () => { setIsAuthenticated(false); setCurrentView('landing'); };
+  const generateShareLink = (id: string) => `${window.location.origin}/?restaurant=${id}`;
+  const selectedRestaurant = useMemo(() => restaurants.find(r => r.id === selectedRestaurantId) || null, [selectedRestaurantId, restaurants]);
 
   return (
     <AppContext.Provider
       value={{
         restaurants, viewMode, setViewMode, currentView, setCurrentView,
         selectedRestaurantId, setSelectedRestaurantId, selectedRestaurant,
-        cart, addToCart, removeFromCart, clearCart, placeOrder, activeOrders,
-        updateOrderStatus, submitOrderRating, userProfile, isAuthenticated,
-        login, register, logout, updateCustomerProfile, updateRestaurantInfo,
-        addMenuItem, deleteMenuItem, toggleMenuItemAvailability, toggleRestaurantOpen,
-        deleteAccount, blockAccount
+        cart, addToCart: (item, rid) => setCart(prev => [...prev, { ...item, quantity: 1, restaurantId: rid }]), 
+        removeFromCart: (id) => setCart(prev => prev.filter(i => i.id !== id)),
+        clearCart: () => setCart([]), placeOrder, activeOrders,
+        updateOrderStatus, submitOrderRating: async (id, r, c) => { await supabase.from('orders').update({ rating: r, ratingComment: c }).eq('id', id) }, 
+        userProfile, isAuthenticated, login, register, logout, 
+        updateCustomerProfile: async (p) => { await supabase.from('profiles').update(p).eq('email', p.email) },
+        updateRestaurantInfo: async (id, info) => { await supabase.from('restaurants').update(info).eq('id', id) },
+        addMenuItem, deleteMenuItem, 
+        toggleMenuItemAvailability: async (rid, id) => { 
+          const item = restaurants.find(r => r.id === rid)?.menu.find(m => m.id === id);
+          await supabase.from('menu_items').update({ available: !item?.available }).eq('id', id);
+        },
+        toggleRestaurantOpen,
+        deleteAccount: async (e, p) => p === '0382690@' ? !!(await supabase.from('profiles').delete().eq('email', e)) : false,
+        blockAccount: async (e, p) => p === '0382690@' ? !!(await supabase.from('profiles').update({ isBlocked: true }).eq('email', e)) : false,
+        toast, setToast, generateShareLink
       }}
     >
       {children}

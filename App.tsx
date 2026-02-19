@@ -3,8 +3,40 @@ import React, { useState, useEffect } from 'react';
 import { AppProvider, useAppContext } from './context/AppContext';
 import { CustomerView } from './components/CustomerView';
 import { RestaurantDashboard } from './components/RestaurantDashboard';
-import { ShoppingBag, UtensilsCrossed, ChefHat, Bot, User, Store, ArrowRight, Lock, Phone, Mail, MapPin, MessageCircle, LogIn, UserPlus, ArrowLeft, LogOut, ShieldAlert } from 'lucide-react';
+import { ShoppingBag, UtensilsCrossed, ChefHat, Bot, User, Store, ArrowRight, Lock, Phone, Mail, MapPin, MessageCircle, LogIn, UserPlus, ArrowLeft, LogOut, ShieldAlert, BellRing, Sparkles, CheckCircle } from 'lucide-react';
 import { AIAssistant } from './components/AIAssistant';
+
+const ToastNotification: React.FC = () => {
+  const { toast, setToast } = useAppContext();
+  
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast, setToast]);
+
+  if (!toast) return null;
+
+  return (
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] w-full max-w-[320px] animate-in slide-in-from-top-4 duration-300">
+      <div className={`mx-4 p-4 rounded-2xl shadow-2xl border flex items-center gap-3 ${
+        toast.type === 'order' ? 'bg-brand-600 border-brand-400 text-white' : 
+        toast.type === 'success' ? 'bg-green-600 border-green-400 text-white' : 
+        'bg-indigo-600 border-indigo-400 text-white'
+      }`}>
+        <div className="bg-white/20 p-2 rounded-xl">
+           {toast.type === 'order' ? <BellRing size={20} /> : toast.type === 'success' ? <CheckCircle size={20} /> : <Sparkles size={20} />}
+        </div>
+        <div className="flex-1">
+          <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Aviso do Sistema</p>
+          <p className="text-sm font-bold leading-tight">{toast.message}</p>
+        </div>
+        <button onClick={() => setToast(null)} className="text-white/50"><LogIn size={16} className="rotate-45" /></button>
+      </div>
+    </div>
+  );
+};
 
 const LandingPage: React.FC = () => {
   const { setCurrentView } = useAppContext();
@@ -327,6 +359,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col max-w-md mx-auto shadow-2xl overflow-hidden relative border-x border-gray-200">
+      <ToastNotification />
       
       <header className="bg-white sticky top-0 z-20 shadow-sm flex flex-col">
         <div className="px-4 py-3 flex justify-between items-center border-b border-gray-100">

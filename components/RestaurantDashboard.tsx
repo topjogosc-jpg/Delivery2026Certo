@@ -1,8 +1,7 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
-// Added AlertCircle to imports from lucide-react
-import { CheckCircle, Clock, XCircle, Bell, Settings, Save, Utensils, Plus, Trash2, Eye, EyeOff, Store, MapPin, Phone, Mail, QrCode, Camera, Image as ImageIcon, X, Bike, Package, Coins, User, MessageCircle, RefreshCw, ChefHat, Info, Star, MessageSquare, LogOut, ArrowLeft, Power, ShieldOff, Trash, AlertCircle } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Bell, Settings, Save, Utensils, Plus, Trash2, Eye, EyeOff, Store, MapPin, Phone, Mail, QrCode, Camera, Image as ImageIcon, X, Bike, Package, Coins, User, MessageCircle, RefreshCw, ChefHat, Info, Star, MessageSquare, LogOut, ArrowLeft, Power, ShieldOff, Trash, AlertCircle, Sparkles, Share2 } from 'lucide-react';
 import { MenuItem, Restaurant, Order } from '../types';
 
 export const RestaurantDashboard: React.FC = () => {
@@ -10,11 +9,10 @@ export const RestaurantDashboard: React.FC = () => {
     activeOrders, updateOrderStatus, restaurants, updateRestaurantInfo, 
     addMenuItem, deleteMenuItem, toggleMenuItemAvailability, logout, 
     setViewMode, setCurrentView, toggleRestaurantOpen, deleteAccount, 
-    blockAccount, userProfile 
+    blockAccount, userProfile, generateShareLink, setToast
   } = useAppContext();
   
   const [activeTab, setActiveTab] = useState<'orders' | 'menu' | 'reviews'>('orders');
-  // Added missing state for creating new menu items
   const [newItem, setNewItem] = useState({ 
     name: '', 
     description: '', 
@@ -25,7 +23,6 @@ export const RestaurantDashboard: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   
-  // Encontra o restaurante associado ao e-mail do parceiro logado
   const myRestaurant = restaurants.find(r => r.email === userProfile.email);
   
   const [showSettings, setShowSettings] = useState(false);
@@ -51,24 +48,33 @@ export const RestaurantDashboard: React.FC = () => {
     );
   }
 
+  const handleShare = () => {
+    const link = generateShareLink(myRestaurant.id);
+    navigator.clipboard.writeText(link).then(() => {
+      setToast({ message: "Link da loja copiado! Envie para seus clientes.", type: 'success' });
+    }).catch(() => {
+      alert("Link gerado: " + link);
+    });
+  };
+
   const handleAdminAction = (action: 'delete' | 'block') => {
     const protocol = prompt(`Para ${action === 'delete' ? 'DELETAR PERMANENTEMENTE' : 'BLOQUEAR'} esta conta de parceiro, insira o protocolo do desenvolvedor:`);
     if (!protocol) return;
 
     if (action === 'delete') {
-      const confirmText = "VOCÊ TEM CERTEZA? Isso removerá sua loja do aplicativo imediatamente e todos os seus dados serão perdidos. A loja só voltará ao ar se você fizer um novo cadastro completo.";
+      const confirmText = "VOCÊ TEM CERTEZA? Isso removerá sua loja do aplicativo imediatamente e todos os seus dados serão perdidos.";
       if (!window.confirm(confirmText)) return;
 
       const success = deleteAccount(userProfile.email, protocol);
       if (success) {
-        alert('Conta e Loja deletadas com sucesso do banco de dados.');
+        alert('Conta e Loja deletadas com sucesso.');
       } else {
         alert('Protocolo inválido ou erro ao deletar.');
       }
     } else {
       const success = blockAccount(userProfile.email, protocol);
       if (success) {
-        alert('Conta bloqueada com sucesso. Você foi deslogado.');
+        alert('Conta bloqueada com sucesso.');
       } else {
         alert('Protocolo inválido ou erro ao bloquear.');
       }
@@ -118,16 +124,16 @@ export const RestaurantDashboard: React.FC = () => {
     ? (ratedOrders.reduce((acc, o) => acc + o.rating!, 0) / ratedOrders.length).toFixed(1)
     : "0.0";
 
-  // Use React.FC to correctly handle generic props like 'key' when used in maps
-  const OrderCard: React.FC<{ order: Order, actionLabel: string, onAction: () => void, secondaryAction?: React.ReactNode }> = ({ order, actionLabel, onAction, secondaryAction }) => (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-       <div className="bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center">
+  const OrderCard: React.FC<{ order: Order, actionLabel: string, onAction: () => void, secondaryAction?: React.ReactNode, isNew?: boolean }> = ({ order, actionLabel, onAction, secondaryAction, isNew }) => (
+    <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 ${isNew ? 'ring-2 ring-brand-500 animate-pulse' : ''}`}>
+       <div className={`bg-gray-50 px-4 py-3 border-b border-gray-100 flex justify-between items-center ${isNew ? 'bg-brand-50' : ''}`}>
          <div>
             <div className="flex items-center gap-2">
                <span className="font-black text-gray-900">#{order.id.slice(0,5)}</span>
                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase border ${order.orderType === 'delivery' ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
                  {order.orderType === 'delivery' ? 'Entrega' : 'Retirada'}
                </span>
+               {isNew && <span className="flex items-center gap-1 text-[8px] font-black text-brand-600 uppercase animate-bounce"><Sparkles size={10} /> Novo!</span>}
             </div>
             <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{new Date(order.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
          </div>
@@ -233,9 +239,16 @@ export const RestaurantDashboard: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button 
+            onClick={handleShare}
+            className="p-2 bg-brand-50 text-brand-600 rounded-xl border-2 border-brand-100 hover:bg-brand-100 transition flex items-center gap-2"
+            title="Compartilhar Link da Loja"
+          >
+            <Share2 size={20} />
+            <span className="text-[10px] font-black uppercase pr-1">Link</span>
+          </button>
+          <button 
             onClick={() => toggleRestaurantOpen(myRestaurant.id)}
             className={`p-2 rounded-xl border-2 transition flex items-center gap-2 ${myRestaurant.isOpen ? 'bg-green-500 text-white border-green-500' : 'bg-white text-red-500 border-red-200'}`}
-            title={myRestaurant.isOpen ? "Ficar Offline" : "Ficar Online"}
           >
             <Power size={20} />
             <span className="text-[10px] font-black uppercase pr-1">{myRestaurant.isOpen ? 'ON' : 'OFF'}</span>
@@ -276,7 +289,6 @@ export const RestaurantDashboard: React.FC = () => {
                   <Trash size={14} /> Deletar Conta
                 </button>
               </div>
-              <p className="text-[9px] text-gray-400 text-center font-bold">* Somente via protocolo do desenvolvedor.</p>
             </div>
 
             <div className="pt-4 border-t border-gray-100">
@@ -294,7 +306,7 @@ export const RestaurantDashboard: React.FC = () => {
 
       <div className="flex bg-white rounded-2xl p-1.5 shadow-sm border border-gray-200">
         <button onClick={() => setActiveTab('orders')} className={`flex-1 flex flex-col items-center justify-center py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all ${activeTab === 'orders' ? 'bg-brand-500 text-white shadow-md' : 'text-gray-400'}`}>
-          <Clock size={16} className="mb-1" /> Pedidos
+          <Clock size={16} className="mb-1" /> Pedidos {incomingOrders.length > 0 && `(${incomingOrders.length})`}
         </button>
         <button onClick={() => setActiveTab('menu')} className={`flex-1 flex flex-col items-center justify-center py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all ${activeTab === 'menu' ? 'bg-brand-500 text-white shadow-md' : 'text-gray-400'}`}>
           <Utensils size={16} className="mb-1" /> Menu
@@ -313,6 +325,7 @@ export const RestaurantDashboard: React.FC = () => {
                 <OrderCard 
                   key={order.id} 
                   order={order} 
+                  isNew={true}
                   actionLabel="Aceitar" 
                   onAction={() => updateOrderStatus(order.id, 'confirmed')}
                   secondaryAction={<button onClick={() => updateOrderStatus(order.id, 'cancelled')} className="px-4 bg-white border border-gray-200 rounded-xl text-red-400 transition hover:bg-red-50 flex items-center justify-center"><XCircle size={20} /></button>}
@@ -335,12 +348,6 @@ export const RestaurantDashboard: React.FC = () => {
                 <OrderCard key={order.id} order={order} actionLabel={order.orderType === 'delivery' ? (order.status === 'ready' ? 'Saiu' : 'Concluir') : 'Entregue'} onAction={() => { if (order.orderType === 'delivery') { if (order.status === 'ready') updateOrderStatus(order.id, 'out_for_delivery'); else updateOrderStatus(order.id, 'completed'); } else { updateOrderStatus(order.id, 'completed'); } }} />
               ))}
             </section>
-          )}
-          {(incomingOrders.length === 0 && confirmedOrders.length === 0 && preparingOrders.length === 0 && actionRequiredOrders.length === 0) && (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400 bg-white rounded-3xl border-2 border-dashed border-gray-200">
-               <ChefHat size={48} className="mb-2 opacity-20" />
-               <p className="font-bold text-sm">Sem pedidos pendentes.</p>
-            </div>
           )}
         </div>
       )}
@@ -384,7 +391,7 @@ export const RestaurantDashboard: React.FC = () => {
                 </div>
               </div>
             )) : (
-              <div className="py-10 text-center bg-white rounded-3xl border-2 border-dashed border-gray-100"><p className="text-gray-400 text-xs font-bold">Seu cardápio está vazio.</p></div>
+              <div className="py-10 text-center bg-white rounded-3xl border-2 border-dashed border-gray-200"><p className="text-gray-400 text-xs font-bold">Seu cardápio está vazio.</p></div>
             )}
           </div>
         </div>
