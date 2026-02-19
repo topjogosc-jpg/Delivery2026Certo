@@ -5,26 +5,26 @@ export const getFoodRecommendation = async (mood: string, availableRestaurants: 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   if (availableRestaurants.length === 0) {
-    return "No momento não temos restaurantes cadastrados, mas fique de olho que em breve teremos opções deliciosas!";
+    return "No momento não temos restaurantes cadastrados, mas em breve teremos opções deliciosas!";
   }
 
-  // Prepare context about available restaurants from the provided list
   const restaurantContext = availableRestaurants.map(r => 
-    `${r.name} (Cozinha: ${r.description}, Menu: ${r.menu.map((m: any) => m.name).join(', ')})`
+    `${r.name} (Descrição: ${r.description}, Itens: ${r.menu.map((m: any) => m.name).join(', ')})`
   ).join('\n');
 
   const prompt = `
-    Você é um assistente útil para pedir comida no aplicativo 'Delivery Certo'.
+    Você é um assistente virtual do aplicativo 'Delivery Certo'.
     
-    Aqui estão os restaurantes e menus disponíveis:
+    Contexto de Restaurantes:
     ${restaurantContext}
 
-    O usuário diz que está com vontade de: "${mood}".
+    Desejo do usuário: "${mood}".
 
-    Com base nos menus disponíveis, sugira 1-2 pratos específicos de restaurantes específicos.
-    Seja entusiasmado e breve (máximo de 50 words).
-    Responda SEMPRE em Português do Brasil.
-    Se o desejo não corresponder a nada, sugira educadamente um item do cardápio que pareça mais próximo ou ofereça ajuda geral.
+    Sua tarefa:
+    1. Recomende 1 ou 2 pratos específicos dos restaurantes acima que combinem com o desejo.
+    2. Seja muito breve (máximo 40 palavras).
+    3. Use um tom amigável.
+    4. Responda em Português (Brasil).
   `;
 
   try {
@@ -32,9 +32,9 @@ export const getFoodRecommendation = async (mood: string, availableRestaurants: 
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    return response.text || "Não consegui encontrar uma recomendação específica, mas tudo parece delicioso!";
+    return response.text || "Não consegui encontrar uma recomendación exata, mas explore nossos menus!";
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Estou com problemas para conectar ao meu guia gastronômico agora. Dê uma olhada nos cardápios, tem muita coisa boa!";
+    return "Estou com dificuldades para acessar as recomendações agora. Explore os cardápios manualmente, há muitas opções boas!";
   }
 };
